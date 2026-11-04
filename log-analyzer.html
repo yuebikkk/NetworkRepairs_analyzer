@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DiagCache 日志分析台</title>
+<style>
+  :root{
+    --bg:#0f1216; --panel:#171b21; --panel2:#1d222a; --border:#2a313b;
+    --text:#e6e9ee; --muted:#8b95a5; --dim:#626c7a;
+    --blue:#5aa9ff; --red:#f07178; --green:#5cc98a; --amber:#e5b567; --purple:#b39cf5;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;font-size:13px;line-height:1.6}
+  header{padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  h1{margin:0;font-size:17px;font-weight:500;letter-spacing:.5px}
+  .sub{color:var(--muted);font-size:12px;margin-top:2px}
+  .pill{border:1px solid var(--border);background:var(--panel);border-radius:99px;padding:5px 12px;font-size:11px;color:var(--muted);white-space:nowrap}
+  .warn{background:rgba(229,181,103,.09);border:1px solid rgba(229,181,103,.35);color:var(--amber);border-radius:8px;padding:10px 14px;margin:16px 24px 0;font-size:12px}
+  main{display:grid;grid-template-columns:390px minmax(0,1fr);gap:18px;padding:18px 24px 40px;align-items:start}
+  @media(max-width:960px){main{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
+  .card h2{margin:0 0 12px;font-size:14px;font-weight:500}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  button{background:var(--panel2);color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px 13px;font-size:12px;cursor:pointer;font-family:inherit}
+  button:hover{border-color:#3d4855;background:#242b34}
+  button.primary{background:#1d3a5c;border-color:#2f5c8f;color:#cfe6ff}
+  button.primary:hover{background:#244a75}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  textarea{width:100%;height:330px;margin-top:12px;background:#10141a;color:#cdd6e2;border:1px solid var(--border);border-radius:8px;padding:12px;font-family:Consolas,"Courier New",monospace;font-size:12px;line-height:1.7;resize:vertical;outline:none}
+  textarea:focus{border-color:#3f6da0}
+  #drop.drag{border-color:var(--blue);background:rgba(90,169,255,.06)}
+  .hint{color:var(--dim);font-size:11px;margin-top:10px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:10px;margin-bottom:16px}
+  .stat{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+  .stat .n{font-size:21px;font-weight:500;line-height:1.25}
+  .stat .l{color:var(--muted);font-size:11px;margin-top:2px}
+  .section{margin-top:16px}
+  .section h2{font-size:14px;font-weight:500;margin:0 0 10px}
+  .diag{border:1px solid var(--border);border-left:3px solid var(--blue);background:var(--panel);border-radius:8px;padding:11px 14px;margin-bottom:9px}
+  .diag.bad{border-left-color:var(--red)} .diag.warn{border-left-color:var(--amber)} .diag.ok{border-left-color:var(--green)}
+  .diag .t{font-weight:500;margin-bottom:3px}
+  .diag .d{color:var(--muted);font-size:12px}
+  .diag .e{color:var(--dim);font-size:11px;margin-top:5px;font-family:Consolas,monospace}
+  .sess{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:10px}
+  .sess .hd{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center}
+  .sess .hd b{font-weight:500}
+  .tag{font-size:11px;border-radius:99px;padding:2px 9px;border:1px solid var(--border);color:var(--muted)}
+  .tag.ok{color:var(--green);border-color:rgba(92,201,138,.4)}
+  .tag.bad{color:var(--red);border-color:rgba(240,113,120,.4)}
+  .tag.warn{color:var(--amber);border-color:rgba(229,181,103,.4)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+  .chip{font-family:Consolas,monospace;font-size:11px;background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:2px 7px;color:var(--muted)}
+  .chip.f{color:var(--red);border-color:rgba(240,113,120,.35)}
+  .chip.m{color:var(--blue);border-color:rgba(90,169,255,.3)}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{text-align:left;color:var(--muted);font-weight:400;border-bottom:1px solid var(--border);padding:8px 8px}
+  td{border-bottom:1px solid rgba(42,49,59,.55);padding:8px 8px;vertical-align:top}
+  tbody tr:hover{background:rgba(255,255,255,.02)}
+  .mono{font-family:Consolas,monospace}
+  .lev{font-family:Consolas,monospace;font-size:11px;padding:1px 7px;border-radius:5px}
+  .lev.M{color:var(--blue);background:rgba(90,169,255,.1)}
+  .lev.F{color:var(--red);background:rgba(240,113,120,.1)}
+  .filters{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+  .filters button.on{border-color:#4a7fb5;color:#cfe6ff;background:#1d3a5c}
+  details{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-top:16px}
+  summary{cursor:pointer;font-size:13px;font-weight:500}
+  .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px 20px;margin-top:12px}
+  .kv{display:flex;gap:9px;font-size:12px;padding:3px 0}
+  .kv b{font-family:Consolas,monospace;font-weight:400;color:var(--blue);min-width:62px}
+  .kv span{color:var(--muted)}
+  .empty{color:var(--dim);padding:18px 0;text-align:center}
+  footer{color:var(--dim);font-size:11px;padding:0 24px 30px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>DiagCache 日志分析台</h1>
+    <div class="sub">读取 diagcache.dat · 按会话分段 · 代号回译 · 自动诊断</div>
+  </div>
+  <div class="pill">纯本地解析，日志不会上传或发送</div>
+</header>
+
+<div class="warn">内含代号明文对照表，属于开发侧工具，请勿随程序一起分发；建议只在自己电脑上使用。</div>
+
+<main>
+  <div>
+    <div class="card" id="drop">
+      <h2>输入日志</h2>
+      <div class="row">
+        <button id="btnFile">选择文件</button>
+        <button id="btnExample">载入示例</button>
+        <button id="btnAnalyze" class="primary">开始分析</button>
+        <button id="btnClear">清空</button>
+        <input type="file" id="file" accept=".dat,.log,.txt,.csv" hidden>
+      </div>
+      <textarea id="input" spellcheck="false" placeholder="粘贴日志内容，或把 diagcache.dat 拖到这里…&#10;&#10;2026-11-04 21:54:04 [M] B01&#10;2026-11-04 21:54:04 [M] B04"></textarea>
+      <div class="hint">支持拖拽文件 · 每行格式：时间 [M/F] 代号[:错误码]</div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <h2>导出</h2>
+      <div class="row">
+        <button id="btnCopy">复制分析报告</button>
+        <button id="btnDownload">下载 .md 报告</button>
+      </div>
+      <div class="hint" id="exportHint">分析后可用</div>
+    </div>
+  </div>
+
+  <div>
+    <div class="stats" id="stats"></div>
+    <div class="section">
+      <h2>诊断结论</h2>
+      <div id="diagnosis"><div class="empty">等待日志输入</div></div>
+    </div>
+    <div class="section">
+      <h2>运行会话</h2>
+      <div id="sessions"></div>
+    </div>
+    <div class="section card">
+      <h2>事件明细</h2>
+      <div class="filters" id="filters">
+        <button data-f="all" class="on">全部</button>
+        <button data-f="fail">仅失败</button>
+        <button data-f="mark">仅正常</button>
+        <button data-f="unknown">仅未知代号</button>
+      </div>
+      <div style="overflow-x:auto"><table id="tbl"><thead><tr><th style="width:150px">时间</th><th style="width:46px">级别</th><th style="width:96px">代号</th><th>含义</th><th style="width:110px">附加码</th></tr></thead><tbody></tbody></table></div>
+      <div class="empty" id="tblEmpty">暂无事件</div>
+    </div>
+
+    <details>
+      <summary>代号对照表</summary>
+      <div class="grid2" id="codeTable"></div>
+    </details>
+    <details>
+      <summary>常见 HResult 低 16 位（十六进制）</summary>
+      <div class="grid2" id="hrTable"></div>
+    </details>
+  </div>
+</main>
+
+<footer>规则基于当前 Logger.cs 的代号定义；若后续新增代号，本页会标为「未知代号」而不猜测含义。</footer>
+
+<script>
+const CODES = {
+  B01:{t:'启动自检开始',k:'ok',d:'应用启动，开始扫描同名残留配置'},
+  B02:{t:'发现残留并已清除',k:'warn',d:'启动时检测到上次遗留的同名条目，已删除'},
+  B03:{t:'启动自检异常',k:'bad',d:'自检过程抛异常，残留可能未被清除'},
+  B04:{t:'无残留',k:'ok',d:'启动时未发现同名条目'},
+  H01:{t:'前置健康检查未通过',k:'bad',d:'访问服务端探活接口失败，主流程在此终止'},
+  K01:{t:'安全凭证获取失败',k:'bad',d:'密码接口请求或 JSON 解析失败'},
+  C00:{t:'VPN 通道建立成功',k:'ok',d:'拨号完成，连接已建立'},
+  C01:{t:'VPN 通道建立失败',k:'bad',d:'创建条目 / 写密钥 / 拨号过程抛异常'},
+  C02:{t:'预共享密钥写入失败',k:'bad',d:'RasSetCredentials 返回非零，横线后为 RAS 错误码'},
+  D01:{t:'断开连接失败',k:'warn',d:'HangUp 过程异常，连接可能残留'},
+  D02:{t:'删除条目失败',k:'warn',d:'电话簿条目删除异常，可能留痕'},
+  Q01:{t:'连接状态查询失败',k:'warn',d:'枚举活动连接时异常'},
+  P00:{t:'代理策略已应用',k:'ok',d:'高级修复模式，代理注册表已写入'},
+  P01:{t:'代理策略应用失败',k:'bad',d:'写代理注册表时异常'},
+  P02:{t:'代理策略清除失败',k:'warn',d:'清理代理时异常，值可能残留'},
+  P03:{t:'代理策略已清除',k:'ok',d:'ProxyEnable=0 且 ProxyServer / ProxyOverride 已删除'},
+  R00:{t:'NAT-T 参数已调整',k:'warn',d:'已写入 AssumeUDPEncapsulationContextOnSendRule=2'},
+  R01:{t:'NAT-T 参数调整失败',k:'warn',d:'通常因权限不足，L2TP 在 NAT 后可能连不上'},
+  R02:{t:'NAT-T 参数还原失败',k:'bad',d:'退出时未能恢复注册表，存在痕迹'},
+  R09:{t:'NAT-T 参数已还原',k:'ok',d:'退出清理时写回原值或删除该键值'},
+  G01:{t:'主流程未处理异常',k:'bad',d:'btnNext_Click 外层捕获到异常'},
+  W01:{t:'退出清理完成',k:'ok',d:'关闭时清理流程执行完毕'},
+  W02:{t:'退出清理异常',k:'bad',d:'清理过程抛异常，可能留痕'}
+};
+const HRESULTS = {
+  '4005':'0x80004005 E_FAIL，Win32 / 网络层通用失败（常见于服务端不可达）',
+  '1500':'0x80131500 COR_E_EXCEPTION，通用 .NET 异常',
+  '1501':'0x80131501 超时 / 操作取消类异常（需结合上下文判断）',
+  '315B':'0x8013153B 操作被取消（常见于请求超时）',
+  '2AF9':'0x80132AF9 网络相关托管异常',
+  '0027':'Win32 ERROR_ 类错误的一部分，需结合完整 HResult'
+};
+const EXAMPLE = `2026-11-04 21:54:04 [M] B01
+2026-11-04 21:54:04 [M] B04
+2026-11-04 22:36:51 [F] H01:4005
+2026-11-04 22:36:51 [F] H01
+2026-11-04 22:37:21 [M] W01
+2026-11-04 22:37:44 [M] B01
+2026-11-04 22:37:44 [M] B04
+2026-11-04 22:38:07 [F] H01:4005
+2026-11-04 22:38:07 [F] H01
+2026-11-04 22:51:39 [M] W01`;
+
+let EVENTS = [], SESSIONS = [], REPORT = '', FILTER = 'all';
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function parse(text){
+  const re = /^\s*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+\[([MF])\]\s+(\S+?)(?::([0-9A-Fa-f]{4}))?\s*$/;
+  const out = [];
+  text.split(/\r?\n/).forEach((line,i)=>{
+    if(!line.trim()) return;
+    const m = line.match(re);
+    if(m){
+      const raw = m[3], base = raw.split('-')[0];
+      out.push({line:i+1, ts:m[1], level:m[2], raw, code:base,
+        extra: raw.includes('-') ? raw.slice(raw.indexOf('-')+1) : null,
+        hr: m[4] ? m[4].toUpperCase() : null,
+        unknown: !CODES[base], original:line.trim()});
+    } else {
+      out.push({line:i+1, malformed:true, original:line.trim()});
+    }
+  });
+  return out;
+}
+
+function buildSessions(evts){
+  const list = []; let cur = null;
+  evts.forEach(e=>{
+    if(!e.malformed && e.code==='B01'){
+      cur = {start:e.ts, end:null, exit:null, events:[], idx:list.length+1};
+      list.push(cur);
+    } else if(!cur){
+      cur = {start:null, end:null, exit:null, events:[], idx:list.length+1};
+      list.push(cur);
+    }
+    cur.events.push(e);
+    if(!e.malformed && (e.code==='W01'||e.code==='W02')){
+      cur.exit = e.code; cur.end = e.ts;
+    }
+  });
+  return list;
+}
+
+function summarize(s){
+  const cs = s.events.filter(e=>!e.malformed).map(e=>e.code);
+  const has = c => cs.includes(c);
+  const risks = [];
+  let mode='未执行任何配置', tone='neutral', tag='tag';
+  if(has('C00')){ mode='VPN 已建立'; tone='ok'; }
+  else if(has('P00')){ mode='代理已应用'; tone='ok'; }
+  else if(has('H01')||has('K01')){ mode='前置校验失败，未建立连接'; tone='bad'; }
+  else if(has('C01')||has('C02')||has('P01')){ mode='配置过程中失败'; tone='bad'; }
+  if(has('R00') && !has('R09')) risks.push('NAT-T 参数未见还原');
+  if(has('P00') && !has('P03')) risks.push('代理策略未见清除');
+  if(has('B03')) risks.push('启动自检异常，残留可能未清');
+  if(!has('W01') && !has('W02')) risks.push('无正常退出记录，可能留痕');
+  if(has('W02')) risks.push('退出清理异常');
+  if(has('R02')) risks.push('参数还原失败');
+  if(has('P02')) risks.push('代理清除失败');
+  if(has('D01')||has('D02')) risks.push('断开 / 删除操作失败');
+  const cleanup = has('W01') ? '清理已完成' : has('W02') ? '清理异常' : '未见退出清理';
+  return {mode,tone,risks,cleanup,count:cs.length,
+    fails:cs.filter(c=>CODES[c]&&CODES[c].k==='bad').length};
+}
+
+function diagnose(evts, sessions){
+  const all = evts.filter(e=>!e.malformed);
+  const has = c => all.some(e=>e.code===c);
+  const cnt = c => all.filter(e=>e.code===c).length;
+  const times = c => all.filter(e=>e.code===c).map(e=>e.ts).join('、');
+  const out = [];
+  if(!all.length) return [{sev:'warn',t:'没有可识别的事件',d:'请确认粘贴的是 diagcache.dat 的内容，每行格式为「时间 [M/F] 代号」。',e:''}];
+
+  if(has('H01') && !has('C00') && !has('P00')){
+    out.push({sev:'bad',t:'所有尝试都停在前置健康检查，VPN / 代理均未建立',
+      d:'探活接口请求失败，主流程在第一步就静默重置。最常见原因是硬编码的服务器地址在当前网络不可达（内网 IP、端口未放通、DNS/路由不通），其次是接口返回内容不是纯 true。带 :4005 的一条是底层网络异常，紧随其后的无后缀 H01 是主流程放弃的记录，属同一事件。',
+      e:'H01 × '+cnt('H01')+' · '+times('H01')});
+  }
+  if(has('C00')) out.push({sev:'ok',t:'出现过成功建立的 VPN 连接',d:'拨号流程执行完毕。注意拨号成功不代表隧道内业务可达，仍建议实测。',e:'C00 × '+cnt('C00')+' · '+times('C00')});
+  if(has('P00')) out.push({sev:'ok',t:'使用过高级修复（代理）模式',d:'该模式下不创建 VPN 条目，仅写代理注册表。',e:'P00 × '+cnt('P00')+' · '+times('P00')});
+  if(has('C01')||has('C02')) out.push({sev:'bad',t:'VPN 建立过程中出现失败',d:'检查 RAS 设备、预共享密钥、以及客户端是否位于 NAT 之后（NAT-T 参数是否已生效）。',e:'C01 × '+cnt('C01')+' / C02 × '+cnt('C02')});
+  if(has('R01')) out.push({sev:'warn',t:'NAT-T 注册表参数调整失败',d:'通常是权限不足（未以管理员运行）。位于 NAT 之后时 L2TP/IPsec 会协商失败。',e:'R01 × '+cnt('R01')});
+  if(has('R00') && !has('R09')) out.push({sev:'warn',t:'存在未还原的 NAT-T 注册表改动',d:'日志里有 R00 但没有对应的 R09，退出时可能没成功恢复原值，属于残留痕迹。',e:'R00 × '+cnt('R00')+' / R09 × '+cnt('R09')});
+  if(has('P00') && !has('P03')) out.push({sev:'warn',t:'代理策略可能未清除干净',d:'有 P00 但没有 P03，退出清理或「浏览其他选项」回退时未记录代理删除。',e:'P00 × '+cnt('P00')+' / P03 × '+cnt('P03')});
+  const noExit = sessions.filter(s=>!s.exit);
+  if(noExit.length) out.push({sev:'warn',t:'有 '+noExit.length+' 次运行没有正常退出记录',d:'可能是强制结束进程或崩溃，此时 Closing 清理不会执行，可能留下 VPN 条目、代理值或注册表改动。下次启动的 B02/B04 可佐证是否有残留。',e:noExit.map(s=>'会话 '+s.idx+' '+(s.start||'起始时间未知')).join(' · ')});
+  if(has('B02')) out.push({sev:'ok',t:'启动自检清除过残留条目',d:'说明上次异常退出确实留下了痕迹，但本次启动已自动删除。',e:'B02 × '+cnt('B02')+' · '+times('B02')});
+  const allClean = sessions.length && sessions.every(s=>s.exit==='W01');
+  if(allClean && !has('W02')) out.push({sev:'ok',t:'每次运行都完成了退出清理',d:'所有会话均以 W01 结束，未见清理异常（W02）。',e:'W01 × '+cnt('W01')});
+  if(!has('R00')) out.push({sev:'ok',t:'从未修改 NAT-T 注册表',d:'没有走到需要改注册表这一步，因此也没有需要还原的内容。',e:''});
+  const unk = evts.filter(e=>e.unknown||e.malformed);
+  if(unk.length) out.push({sev:'warn',t:'有 '+unk.length+' 行无法识别',d:'可能是新版代号或格式损坏。本工具不会猜测其含义，建议在「事件明细」里筛选查看。',e:unk.slice(0,5).map(e=>'第 '+e.line+' 行: '+e.original).join(' · ')});
+  if(!out.length) out.push({sev:'ok',t:'未发现异常',d:'日志中都是正常事件，无失败代号。',e:''});
+  return out;
+}
+
+function render(){
+  const all = EVENTS.filter(e=>!e.malformed);
+  const fails = all.filter(e=>CODES[e.code]&&CODES[e.code].k==='bad').length;
+  const span = all.length ? (all[0].ts+' ~ '+all[all.length-1].ts) : '—';
+  $('stats').innerHTML = [
+    ['事件总数',EVENTS.length,''],
+    ['运行会话',SESSIONS.length,''],
+    ['失败事件',fails,fails?'red':'green'],
+    ['未知 / 损坏行',EVENTS.filter(e=>e.malformed||e.unknown).length,'amber'],
+    ['时间跨度',span,'mono']
+  ].map(([l,v,c])=>`<div class="stat"><div class="n ${c==='mono'?'mono':''}" ${c==='mono'?'style="font-size:11px;line-height:2.4"':''}>${esc(v)}</div><div class="l">${l}</div></div>`).join('');
+
+  const ds = diagnose(EVENTS,SESSIONS);
+  $('diagnosis').innerHTML = ds.map(d=>`<div class="diag ${d.sev}"><div class="t">${esc(d.t)}</div><div class="d">${esc(d.d)}</div>${d.e?`<div class="e">${esc(d.e)}</div>`:''}</div>`).join('');
+
+  $('sessions').innerHTML = SESSIONS.length ? SESSIONS.map(s=>{
+    const u = summarize(s);
+    const chips = s.events.map(e=>{
+      if(e.malformed) return `<span class="chip" title="${esc(e.original)}">? 第${e.line}行</span>`;
+      const c = CODES[e.code];
+      return `<span class="chip ${e.level==='F'?'f':'m'}" title="${c?esc(c.d):'未知代号'} · ${e.ts}">${esc(e.raw)}${e.hr?':'+e.hr:''}</span>`;
+    }).join('');
+    return `<div class="sess">
+      <div class="hd"><div><b>会话 ${s.idx}</b> <span class="tag ${u.tone}">${esc(u.mode)}</span></div>
+      <div class="row"><span class="tag ${s.exit==='W01'?'ok':(s.exit==='W02'?'bad':'warn')}">${esc(u.cleanup)}</span><span class="mono" style="color:var(--dim);font-size:11px">${esc(s.start||'起始未知')} → ${esc(s.end||'未见结束')}</span></div></div>
+      <div class="chips">${chips}</div>
+      ${u.risks.length?`<div style="margin-top:8px;color:var(--amber);font-size:11px">风险提示：${esc(u.risks.join(' · '))}</div>`:''}
+    </div>`;
+  }).join('') : '<div class="empty">无会话</div>';
+
+  const rows = EVENTS.filter(e=>{
+    if(FILTER==='fail') return !e.malformed && (e.level==='F'||(CODES[e.code]&&CODES[e.code].k==='bad'));
+    if(FILTER==='mark') return !e.malformed && e.level==='M';
+    if(FILTER==='unknown') return e.malformed||e.unknown;
+    return true;
+  });
+  $('tbl').querySelector('tbody').innerHTML = rows.map(e=>{
+    if(e.malformed) return `<tr><td class="mono" colspan="2">第 ${e.line} 行</td><td>—</td><td style="color:var(--amber)">格式无法识别：${esc(e.original)}</td><td>—</td></tr>`;
+    const c = CODES[e.code];
+    const extra = e.hr ? `<span class="mono" title="${esc(HRESULTS[e.hr]||'未收录的 HResult')}">${e.hr}</span>` : (e.extra ? `<span class="mono">${esc(e.extra)}</span>` : '—');
+    return `<tr>
+      <td class="mono">${esc(e.ts)}</td>
+      <td><span class="lev ${e.level}">${e.level}</span></td>
+      <td class="mono" style="color:${e.unknown?'var(--amber)':'var(--blue)'}">${esc(e.raw)}</td>
+      <td>${c?esc(c.t):'未知代号'}<div style="color:var(--dim);font-size:11px">${c?esc(c.d):'该代号不在当前对照表中，请检查 Logger.cs 是否有新增'}</div></td>
+      <td>${extra}</td></tr>`;
+  }).join('');
+  $('tblEmpty').style.display = rows.length ? 'none':'block';
+
+  REPORT = buildReport(ds);
+  $('exportHint').textContent = '已生成，可复制或下载';
+}
+
+function buildReport(ds){
+  const L = ['# DiagCache 日志分析报告','','生成时间：'+new Date().toLocaleString('zh-CN'),'',
+    '事件数：'+EVENTS.length+' · 会话数：'+SESSIONS.length,'','## 诊断结论',''];
+  ds.forEach(d=>{ L.push('- **['+d.sev.toUpperCase()+'] '+d.t+'**'); L.push('  - '+d.d); if(d.e) L.push('  - 依据：'+d.e); });
+  L.push('','## 会话明细','');
+  SESSIONS.forEach(s=>{ const u=summarize(s);
+    L.push('### 会话 '+s.idx+' · '+(s.start||'起始未知')+' → '+(s.end||'未见结束'));
+    L.push('- 结果：'+u.mode+' · '+u.cleanup);
+    if(u.risks.length) L.push('- 风险：'+u.risks.join('、'));
+    L.push('- 事件：'+s.events.map(e=>e.malformed?'?':e.raw+(e.hr?':'+e.hr:'')).join(' → '));
+    L.push('');
+  });
+  L.push('## 原始事件','');
+  EVENTS.forEach(e=>L.push('- `'+e.original+'`'));
+  return L.join('\n');
+}
+
+function analyze(){
+  EVENTS = parse($('input').value);
+  SESSIONS = buildSessions(EVENTS);
+  render();
+}
+function toast(msg){ const el=$('exportHint'); el.textContent=msg; setTimeout(()=>{el.textContent='已生成，可复制或下载';},2500); }
+
+$('btnAnalyze').onclick = analyze;
+$('btnExample').onclick = ()=>{ $('input').value = EXAMPLE; analyze(); };
+$('btnClear').onclick = ()=>{ $('input').value=''; EVENTS=[]; SESSIONS=[]; REPORT=''; render(); $('exportHint').textContent='分析后可用'; };
+$('btnFile').onclick = ()=>$('file').click();
+$('file').onchange = e=>{ const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ $('input').value=r.result; analyze(); }; r.readAsText(f,'utf-8'); e.target.value=''; };
+const drop=$('drop');
+['dragenter','dragover'].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.add('drag');}));
+['dragleave','drop'].forEach(t=>drop.addEventListener(t,e=>{e.preventDefault();drop.classList.remove('drag');}));
+drop.addEventListener('drop',e=>{ const f=e.dataTransfer.files[0]; if(!f) return; const r=new FileReader(); r.onload=()=>{ $('input').value=r.result; analyze(); }; r.readAsText(f,'utf-8'); });
+$('input').addEventListener('input',()=>{ if($('input').value.trim()) analyze(); });
+$('filters').onclick = e=>{ if(e.target.tagName!=='BUTTON') return; FILTER=e.target.dataset.f;
+  $('filters').querySelectorAll('button').forEach(b=>b.classList.toggle('on',b===e.target)); render(); };
+$('btnCopy').onclick = async ()=>{ if(!REPORT){toast('请先分析');return;} try{ await navigator.clipboard.writeText(REPORT); toast('已复制到剪贴板'); }catch(err){ toast('复制失败，请手动选择文本'); } };
+$('btnDownload').onclick = ()=>{ if(!REPORT){toast('请先分析');return;} const b=new Blob([REPORT],{type:'text/markdown;charset=utf-8'}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='diagcache-report-'+new Date().toISOString().slice(0,10)+'.md'; a.click(); URL.revokeObjectURL(a.href); toast('已下载报告'); };
+
+$('codeTable').innerHTML = Object.entries(CODES).map(([k,v])=>`<div class="kv"><b>${k}</b><span>${esc(v.t)} — ${esc(v.d)}</span></div>`).join('');
+$('hrTable').innerHTML = Object.entries(HRESULTS).map(([k,v])=>`<div class="kv"><b>${k}</b><span>${esc(v)}</span></div>`).join('');
+render();
+</script>
+</body>
+</html>
