@@ -97,6 +97,15 @@
       </div>
       <textarea id="input" spellcheck="false" placeholder="粘贴日志内容，或把 diagcache.dat 拖到这里…&#10;&#10;2026-11-04 21:54:04 [M] B01&#10;2026-11-04 21:54:04 [M] B04"></textarea>
       <div class="hint">支持拖拽文件 · 每行格式：时间 [M/F] 代号[:错误码]</div>
+      <div class="hint" style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+        <b style="color:var(--muted);font-weight:500">日志在哪</b><br>
+        · 当前默认：<span class="mono">%APPDATA%\repair\diagcache.dat</span><br>
+        &nbsp;&nbsp;即 <span class="mono">C:\Users\&lt;用户名&gt;\AppData\Roaming\repair\</span><br>
+        · 旧版单文件残留：<span class="mono">%TEMP%\.net\&lt;应用名&gt;\&lt;哈希&gt;\diagcache.dat</span><br>
+        · 自定义：环境变量 <span class="mono">DIAGCACHE_PATH</span> 指定完整文件路径<br>
+        文件名是 <span class="mono">.dat</span> 而非 <span class="mono">.log</span>，按名称搜日志容易漏掉。
+        <div class="row" style="margin-top:9px"><button id="btnCopyLogPath">复制默认日志路径</button><span id="pathHint" class="hint" style="margin:0"></span></div>
+      </div>
     </div>
     <div class="card" style="margin-top:16px">
       <h2>导出</h2>
@@ -373,6 +382,17 @@ $('filters').onclick = e=>{ if(e.target.tagName!=='BUTTON') return; FILTER=e.tar
   $('filters').querySelectorAll('button').forEach(b=>b.classList.toggle('on',b===e.target)); render(); };
 $('btnCopy').onclick = async ()=>{ if(!REPORT){toast('请先分析');return;} try{ await navigator.clipboard.writeText(REPORT); toast('已复制到剪贴板'); }catch(err){ toast('复制失败，请手动选择文本'); } };
 $('btnDownload').onclick = ()=>{ if(!REPORT){toast('请先分析');return;} const b=new Blob([REPORT],{type:'text/markdown;charset=utf-8'}); const a=document.createElement('a'); a.href=URL.createObjectURL(b); a.download='diagcache-report-'+new Date().toISOString().slice(0,10)+'.md'; a.click(); URL.revokeObjectURL(a.href); toast('已下载报告'); };
+$('btnCopyLogPath').onclick = async ()=>{
+  const p = '%APPDATA%\\repair\\diagcache.dat';
+  try{ await navigator.clipboard.writeText(p); $('pathHint').textContent='已复制，可粘贴到资源管理器地址栏'; }
+  catch(err){
+    const ta=document.createElement('textarea'); ta.value=p; document.body.appendChild(ta); ta.select();
+    try{ document.execCommand('copy'); $('pathHint').textContent='已复制，可粘贴到资源管理器地址栏'; }
+    catch(e){ $('pathHint').textContent='复制失败，请手动输入 '+p; }
+    ta.remove();
+  }
+  setTimeout(()=>{ $('pathHint').textContent=''; },4000);
+};
 
 $('codeTable').innerHTML = Object.entries(CODES).map(([k,v])=>`<div class="kv"><b>${k}</b><span>${esc(v.t)} — ${esc(v.d)}</span></div>`).join('');
 $('hrTable').innerHTML = Object.entries(HRESULTS).map(([k,v])=>`<div class="kv"><b>${k}</b><span>${esc(v)}</span></div>`).join('');
